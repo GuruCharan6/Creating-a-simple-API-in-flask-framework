@@ -2,25 +2,45 @@ from flask import Flask, request, jsonify
 import re
 
 app = Flask(__name__)
-def is_sanitized(input_str):
-    sql_patterns = [
-        r"(--|;|\b(OR|AND|SELECT|INSERT|DELETE|UPDATE|DROP|UNION)\b)",
-        r"(=|#|\bWHERE\b|\bLIKE\b|\bFROM\b|\bTABLE\b)"
-    ]
-    for pattern in sql_patterns:
-        if re.search(pattern, input_str, re.IGNORECASE):
-            return False
-    return True
 
-@app.route('/v1/sanitized/input/',methods=['POST'])
+SQL_INJECTION_PATTERNS = [
+    r"(--|#|;)",                      
+    r"(\b(ALTER|DROP|SELECT|INSERT|DELETE|UPDATE|CREATE|WHERE|OR|AND)\b)",  
+    r"(\bUNION\b.*\bSELECT\b)",     
+    r"(\\x00|\\n|\\r|\\t|\\Z|\\b|\\x20)",   
+    r"(\b(1=1|1=0)\b)",              
+    r"(\W)"                          
+  # r"('|\"|`|\\|\/|\*|\+|\-|=|%|@|!|\^|\(|\)|\[|\]|\{|\}|\<|\>|\?|:|,|\.|\||~|\$)"           
+]
+
+def is_sql_injection(input_text):
+    for pattern in SQL_INJECTION_PATTERNS:
+        if re.search(pattern, input_text, re.IGNORECASE):
+            return True
+    return False
+
+@app.route('/v1/sanitized/input/', methods=['POST'])
 def sanitize_input():
-    data = request.get_json()
-    payload = data.get("payload","")
+    try:
+        data = request.get_json()
+        payload = data.get('payload', '')
 
-    if is_sanitized(payload):
-        return jsonify({"result":"sanitized"})
-    else:
-        return jsonify({"result":"unsanitized"})
+        if not data: 
+           return jsonify({"error": "Missing payload"}), 400 # Invaid input
+        
+        if not payload: 
+            return jsonify({"result": "unsanitized"}), 200 # Success
+        
+        if not isinstance(payload, str):
+            return jsonify({"error": "Invalid input, payload must be a string"}), 400 # Invaid input
+
+        if is_sql_injection(payload):
+            return jsonify({"result": "unsanitized"}), 200 # Success
+        else:
+            return jsonify({"result": "sanitized"}), 200 # Success
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500 # Server side error
 
 if __name__ == '__main__':
     app.run(debug=True)
